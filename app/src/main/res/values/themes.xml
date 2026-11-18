@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.GasolinerasWidget.Main" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/config_background</item>
+        <item name="android:colorAccent">@color/config_accent</item>
+        <item name="android:statusBarColor">@color/config_background</item>
+        <item name="android:navigationBarColor">@color/config_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:textColorPrimary">@color/config_text_primary</item>
+        <item name="android:textColorSecondary">@color/config_text_secondary</item>
+    </style>
+
+    <style name="Theme.GasolinerasWidget.Config" parent="Theme.GasolinerasWidget.Main" />
+</resources>

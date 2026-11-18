@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="widget_text_primary">#212121</color>
+    <color name="widget_text_secondary">#616161</color>
+    <color name="widget_text_muted">#9E9E9E</color>
+    <color name="widget_route_warning">#F57C00</color>
+    <color name="widget_divider">#E0E0E0</color>
+    <color name="widget_toggle_background">#E3F2FD</color>
+    <color name="widget_toggle_text">#1565C0</color>
+
+    <color name="fila_normal_bg">#FFFFFF</color>
+    <color name="fila_mas_barata_bg">#EEF2F6</color>
+
+    <color name="acceso_cercana">#00B0FF</color>
+    <color name="acceso_lejana">#E53935</color>
+    <color name="acceso_neutra">#B0BEC5</color>
+
+    <color name="precio_verde_brillante">#00C853</color>
+    <color name="precio_verde">#2E7D32</color>
+    <color name="precio_negro">#212121</color>
+    <color name="precio_amarillo">#FBC02D</color>
+    <color name="precio_naranja">#F57C00</color>
+    <color name="precio_rojo">#D32F2F</color>
+    <color name="precio_texto_claro">#FFFFFF</color>
+    <color name="precio_texto_oscuro">#111111</color>
+
+    <color name="deposito_ahorro">#2E7D32</color>
+    <color name="deposito_sobrecoste">#C62828</color>
+    <color name="deposito_neutro">#757575</color>
+
+    <color name="config_background">#121212</color>
+    <color name="config_text_primary">#FFFFFF</color>
+    <color name="config_text_secondary">#BDBDBD</color>
+    <color name="config_accent">#80CBC4</color>
+    <color name="config_button">#1565C0</color>
+    <color name="config_button_secondary">#37474F</color>
+
+    <color name="floating_card_bg">#FFFFFF</color>
+    <color name="floating_header_bg">#F1F5F9</color>
+    <color name="floating_card_stroke">#D7DFE7</color>
+    <color name="floating_button_bg">#E3F2FD</color>
+    <color name="floating_button_text">#1565C0</color>
+    <color name="floating_close_bg">#FDE8E8</color>
+    <color name="floating_close_text">#B3261E</color>
+    <color name="floating_pressed">#261565C0</color>
+    <color name="floating_divider">#DCE3EA</color>
+
+    <!-- Clean chips and icon buttons of the floating capsule. -->
+    <color name="floating_chip_bg">#EEF4FF</color>
+    <color name="floating_chip_stroke">#D2E3FC</color>
+    <color name="floating_chip_text">#1967D2</color>
+    <color name="floating_icon_bg">#EEF4FF</color>
+    <color name="floating_icon_stroke">#D2E3FC</color>
+    <color name="floating_icon_tint">#1967D2</color>
+    <color name="floating_close_soft_bg">#FDECEC</color>
+    <color name="floating_close_soft_stroke">#FAD2CF</color>
+    <color name="floating_close_icon">#D93025</color>
+</resources>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="FloatingChipButton">
+        <item name="android:background">@drawable/bg_chip_pill</item>
+        <item name="android:gravity">center</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:minWidth">56dp</item>
+        <item name="android:minHeight">36dp</item>
+        <item name="android:paddingStart">10dp</item>
+        <item name="android:paddingEnd">10dp</item>
+        <item name="android:textColor">@color/floating_chip_text</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="FloatingIconButton">
+        <item name="android:background">@drawable/bg_icon_button</item>
+        <item name="android:padding">6dp</item>
+        <item name="android:scaleType">centerInside</item>
+    </style>
+
+    <style name="FloatingIconButton.Close">
+        <item name="android:background">@drawable/bg_icon_button_close</item>
+    </style>
+
+</resources>

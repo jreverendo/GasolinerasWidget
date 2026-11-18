@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Same highlight tone used by the desktop widget for the cheapest row. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/floating_pressed">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/fila_mas_barata_bg" />
+        </shape>
+    </item>
+</ripple>

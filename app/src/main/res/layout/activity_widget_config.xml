@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/config_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/config_background"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/config_title"
+                android:textColor="@color/config_text_primary"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/config_subtitle"
+                android:textColor="@color/config_text_secondary"
+                android:textSize="14sp" />
+
+            <RadioGroup
+                android:id="@+id/fuel_group"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:orientation="vertical">
+
+                <RadioButton
+                    android:id="@+id/radio_gasolina_95"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:text="@string/fuel_gasolina_95"
+                    android:textColor="@color/config_text_primary"
+                    android:textSize="16sp" />
+
+                <RadioButton
+                    android:id="@+id/radio_gasoleo_a"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:minHeight="48dp"
+                    android:text="@string/fuel_gasoleo_a"
+                    android:textColor="@color/config_text_primary"
+                    android:textSize="16sp" />
+
+                <RadioButton
+                    android:id="@+id/radio_gasolina_98"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:text="@string/fuel_gasolina_98"
+                    android:textColor="@color/config_text_primary"
+                    android:textSize="16sp" />
+
+                <RadioButton
+                    android:id="@+id/radio_gasoleo_premium"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:text="@string/fuel_gasoleo_premium"
+                    android:textColor="@color/config_text_primary"
+                    android:textSize="16sp" />
+
+            </RadioGroup>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/config_network_title"
+                android:textColor="@color/config_text_primary"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <RadioGroup
+                android:id="@+id/network_group"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:orientation="vertical">
+
+                <RadioButton
+                    android:id="@+id/radio_network_all"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:minHeight="48dp"
+                    android:text="@string/network_all"
+                    android:textColor="@color/config_text_primary"
+                    android:textSize="16sp" />
+
+                <RadioButton
+                    android:id="@+id/radio_network_traditional"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:text="@string/network_traditional"
+                    android:textColor="@color/config_text_primary"
+                    android:textSize="16sp" />
+
+                <RadioButton
+                    android:id="@+id/radio_network_lowcost"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:text="@string/network_lowcost"
+                    android:textColor="@color/config_text_primary"
+                    android:textSize="16sp" />
+
+            </RadioGroup>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/config_deposit_title"
+                android:textColor="@color/config_text_primary"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/edit_litros_deposito"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:hint="@string/config_deposit_hint"
+                android:imeOptions="actionDone"
+                android:importantForAutofill="no"
+                android:inputType="numberDecimal"
+                android:maxLength="6"
+                android:minHeight="48dp"
+                android:selectAllOnFocus="true"
+                android:textColor="@color/config_text_primary"
+                android:textColorHint="@color/config_text_secondary"
+                android:textSize="16sp" />
+
+            <Button
+                android:id="@+id/button_save"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:backgroundTint="@color/config_button"
+                android:text="@string/config_save"
+                android:textAllCaps="false"
+                android:textColor="@color/config_text_primary"
+                android:textSize="16sp" />
+
+        </LinearLayout>
+
+    </ScrollView>
+
+</LinearLayout>
