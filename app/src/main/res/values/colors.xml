@@ -55,4 +55,9 @@
     <color name="floating_close_soft_bg">#FDECEC</color>
     <color name="floating_close_soft_stroke">#FAD2CF</color>
     <color name="floating_close_icon">#D93025</color>
+
+    <!-- Cierre en modo ciudad: verde suave, sin fondo rojo. -->
+    <color name="floating_close_city_bg">#E6F4EA</color>
+    <color name="floating_close_city_stroke">#CEEAD6</color>
+    <color name="floating_close_city_icon">#1E8E3E</color>
 </resources>

@@ -15,6 +15,7 @@
     <string name="widget_last_update_format">Act. %1$s</string>
     <string name="widget_last_update_unknown">Act. --/-- --:--</string>
     <string name="formato_distancia">%.1f km</string>
+    <string name="formato_distancia_atras">%.1f km - Atras</string>
     <string name="config_title">Configurar widget</string>
     <string name="config_subtitle">Elige el combustible y el tipo de red.</string>
     <string name="config_network_title">Tipo de red</string>

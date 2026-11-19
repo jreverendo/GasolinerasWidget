@@ -13,6 +13,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.graphics.Rect
@@ -74,6 +75,11 @@ import kotlin.math.sqrt
  * escala textos, botones y espaciados para poder leerla y pulsarla a
  * distancia. El ancho y el factor de escala se recalculan al inflar la
  * vista y cada vez que cambia la configuracion de pantalla.
+ *
+ * En carretera el servicio detecta el modo ruta con la velocidad sostenida
+ * y el rumbo de la marcha: las estaciones que quedan detras pasan al final
+ * de la lista, sin desaparecer, y el boton de cierre cambia a tono rojo.
+ * En ciudad o parado se mantiene el orden y el tono verde de siempre.
  */
 class FloatingWidgetService : Service() {
 
@@ -117,6 +123,12 @@ class FloatingWidgetService : Service() {
     private var ultimoMovimientoMs = 0L
     private var puntoMovimiento: Ubicacion? = null
     private var ultimaUbicacionRuta: Ubicacion? = null
+
+    /** Detector de modo ruta con histeresis temporal y rumbo de la marcha. */
+    private val detectorRuta = RouteDirectionHelper()
+    private var modoRuta = false
+    private var estacionesRebasadas: Set<String> = emptySet()
+    private var ubicacionActual: Ubicacion? = null
 
     private var arrastreInicioX = 0
     private var arrastreInicioY = 0
@@ -461,6 +473,8 @@ class FloatingWidgetService : Service() {
         params = p
 
         configurarControles(vista)
+        // El cierre nace en tono de ciudad; el modo ruta lo pinta en rojo.
+        actualizarColorCierre()
         // El XML es la referencia compacta: a partir de el se escala todo el
         // arbol para pantallas grandes sin tocar la logica de los controles.
         aplicarEscalaCapsula(escalaActual)
@@ -934,8 +948,14 @@ class FloatingWidgetService : Service() {
         ajustarDentroDePantalla(true)
     }
 
+    /**
+     * Ordena por el criterio del usuario y, en modo ruta con rumbo fiable,
+     * empuja al final las estaciones que quedan detras del vehiculo. No se
+     * elimina ninguna: siguen en el desplegable por si conviene dar la
+     * vuelta. Sin modo ruta el orden es exactamente el de siempre.
+     */
     private fun ordenar(lista: List<Gasolinera>): List<Gasolinera> {
-        return if (criterioActual == FloatingWidgetPreferences.CRITERIO_CERCANA) {
+        val ordenadas = if (criterioActual == FloatingWidgetPreferences.CRITERIO_CERCANA) {
             lista.sortedWith(
                 compareBy<Gasolinera> { it.distancia }
                     .thenBy { it.precio }
@@ -948,6 +968,34 @@ class FloatingWidgetService : Service() {
                     .thenBy { it.nombre }
             )
         }
+
+        estacionesRebasadas = emptySet()
+        val rumbo = detectorRuta.rumbo
+        val ubicacion = ubicacionActual
+        if (!modoRuta || rumbo == null || ubicacion == null) return ordenadas
+
+        val porDelante = ArrayList<Gasolinera>(ordenadas.size)
+        val porDetras = ArrayList<Gasolinera>()
+        val idsRebasados = HashSet<String>()
+
+        for (gasolinera in ordenadas) {
+            val desviacion = RouteDirectionHelper.desviacionGrados(
+                rumbo,
+                ubicacion.latitud,
+                ubicacion.longitud,
+                gasolinera.latitud,
+                gasolinera.longitud
+            )
+            if (RouteDirectionHelper.esRebasada(desviacion)) {
+                porDetras.add(gasolinera)
+                idsRebasados.add(gasolinera.id)
+            } else {
+                porDelante.add(gasolinera)
+            }
+        }
+
+        estacionesRebasadas = idsRebasados
+        return porDelante + porDetras
     }
 
     private fun pintarProtagonista(
@@ -956,7 +1004,7 @@ class FloatingWidgetService : Service() {
         litrosDeposito: Float
     ) {
         nombre.text = gasolinera.nombre
-        distancia.text = getString(R.string.formato_distancia, gasolinera.distancia)
+        distancia.text = textoDistancia(gasolinera)
         precio.visibility = View.VISIBLE
         precio.text = String.format(Locale.US, "%.3f", gasolinera.precio)
 
@@ -1016,10 +1064,7 @@ class FloatingWidgetService : Service() {
             )
 
             fila.findViewById<TextView>(R.id.row_nombre).text = gasolinera.nombre
-            fila.findViewById<TextView>(R.id.row_distancia).text = getString(
-                R.string.formato_distancia,
-                gasolinera.distancia
-            )
+            fila.findViewById<TextView>(R.id.row_distancia).text = textoDistancia(gasolinera)
 
             val vistaPrecio = fila.findViewById<TextView>(R.id.row_precio)
             vistaPrecio.text = String.format(Locale.US, "%.3f", gasolinera.precio)
@@ -1043,6 +1088,43 @@ class FloatingWidgetService : Service() {
             fila.setOnClickListener { abrirNavegacion(gasolinera) }
             filasExtra.addView(fila)
         }
+    }
+
+    /** Distancia con el aviso discreto cuando la estacion queda detras. */
+    private fun textoDistancia(gasolinera: Gasolinera): String {
+        return if (esEstacionRebasada(gasolinera)) {
+            getString(R.string.formato_distancia_atras, gasolinera.distancia)
+        } else {
+            getString(R.string.formato_distancia, gasolinera.distancia)
+        }
+    }
+
+    private fun esEstacionRebasada(gasolinera: Gasolinera): Boolean {
+        return modoRuta && estacionesRebasadas.contains(gasolinera.id)
+    }
+
+    /**
+     * El cierre cambia de tono segun el modo, sin ocupar mas espacio: verde
+     * suave en ciudad y rojo suave en ruta.
+     */
+    private fun actualizarColorCierre() {
+        if (!this::btnCerrar.isInitialized) return
+        btnCerrar.setBackgroundResource(
+            if (modoRuta) {
+                R.drawable.bg_icon_button_close
+            } else {
+                R.drawable.bg_icon_button_close_city
+            }
+        )
+        btnCerrar.imageTintList = ColorStateList.valueOf(
+            getColor(
+                if (modoRuta) {
+                    R.color.floating_close_icon
+                } else {
+                    R.color.floating_close_city_icon
+                }
+            )
+        )
     }
 
     private fun actualizarBotonExpansion(habilitado: Boolean) {
@@ -1186,8 +1268,12 @@ class FloatingWidgetService : Service() {
 
     /**
      * Activa las actualizaciones de ruta solo con la capsula abierta, la
-     * pantalla encendida y permiso de ubicacion. La distancia minima de
-     * 1500 metros y el intervalo de 30 segundos evitan sondeos continuos.
+     * pantalla encendida y permiso de ubicacion.
+     *
+     * La lista se sigue recalculando cada 1500 m, pero las lecturas llegan
+     * cada 10 segundos para que el detector de modo ruta pueda evaluar su
+     * ventana de un minuto. El GPS ya estaba activo con el refresco anterior;
+     * solo cambia la frecuencia de las llamadas.
      */
     private fun iniciarActualizacionesRuta() {
         if (!activo || actualizacionesRutaActivas) return
@@ -1213,8 +1299,8 @@ class FloatingWidgetService : Service() {
         try {
             gestor.requestLocationUpdates(
                 proveedor,
-                INTERVALO_RUTA_MS,
-                DISTANCIA_RUTA_METROS,
+                INTERVALO_MUESTREO_MS,
+                DISTANCIA_MUESTREO_METROS,
                 escuchaRuta,
                 Looper.getMainLooper()
             )
@@ -1260,6 +1346,33 @@ class FloatingWidgetService : Service() {
             velocidadMps = if (location.hasSpeed()) location.speed else null,
             timestampMillis = tiempo
         )
+
+        // El detector consume todas las lecturas, no solo las que superan
+        // los 1500 m del refresco de la lista, para poder aplicar la
+        // histeresis de un minuto sobre la velocidad.
+        val rumboGps = if (location.hasBearing() && location.bearing.isFinite()) {
+            location.bearing
+        } else {
+            null
+        }
+        val cambioModo = detectorRuta.registrar(
+            latitud = punto.latitud,
+            longitud = punto.longitud,
+            velocidadMps = punto.velocidadMps,
+            bearingGrados = rumboGps,
+            tiempoMs = punto.timestampMillis
+        )
+        ubicacionActual = punto
+        if (cambioModo) {
+            modoRuta = detectorRuta.modoRuta
+            Log.i(TAG, "Modo ruta " + (if (modoRuta) "activado" else "desactivado"))
+            actualizarColorCierre()
+            if (root != null && datosVisibles) {
+                // Se reordena con el nuevo modo sin esperar al proximo
+                // refresco de 1500 m.
+                ultimoResultado?.let { aplicarResultado(it) }
+            }
+        }
 
         val referenciaMovimiento = puntoMovimiento
         if (referenciaMovimiento == null) {
@@ -1422,7 +1535,8 @@ class FloatingWidgetService : Service() {
 
         // Actualizacion automatica de ruta y proteccion de bateria.
         private const val DISTANCIA_RUTA_METROS = 1500f
-        private const val INTERVALO_RUTA_MS = 30000L
+        private const val INTERVALO_MUESTREO_MS = 10000L
+        private const val DISTANCIA_MUESTREO_METROS = 0f
         private const val MOVIMIENTO_REAL_METROS = 100.0
         private const val INTERVALO_VIGILANCIA_MS = 2L * 60L * 1000L
         private const val INACTIVIDAD_MAXIMA_MS = 10L * 60L * 1000L
