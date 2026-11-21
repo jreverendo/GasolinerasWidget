@@ -10,22 +10,38 @@ import android.location.Geocoder
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
+import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.ConnectionSpec
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.TlsVersion
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.io.InterruptedIOException
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.security.KeyStore
+import java.security.SecureRandom
+import java.security.cert.CertPathValidatorException
+import java.security.cert.CertificateException
+import java.security.cert.X509Certificate
 import java.text.Normalizer
 import java.util.Calendar
 import java.util.Locale
@@ -33,6 +49,12 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLException
+import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.TrustManager
+import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.X509TrustManager
 import kotlin.math.asin
 import kotlin.math.cos
 import kotlin.math.sin
@@ -72,6 +94,35 @@ data class EstadoDispositivo(
             else -> ModoActualizacion.REPOSO
         }
 }
+
+/**
+ * Causa concreta de un fallo de descarga. Permite mostrar un diagnostico
+ * legible en la pantalla del coche sin depender de los logs.
+ */
+enum class ErrorDescarga {
+    NINGUNO,
+    SIN_CONEXION,
+    TIMEOUT,
+    SSL,
+    HTTP,
+    RESPUESTA_VACIA,
+    JSON_NO_VALIDO,
+    GUARDADO,
+    RED,
+    EN_CURSO,
+    DESCONOCIDO
+}
+
+/**
+ * Resultado de una descarga del JSON del Ministerio.
+ *
+ * codigoHttp solo tiene valor cuando el fallo es de tipo HTTP.
+ */
+data class ResultadoDescarga(
+    val exitoso: Boolean,
+    val error: ErrorDescarga = ErrorDescarga.NINGUNO,
+    val codigoHttp: Int = 0
+)
 
 /**
  * Repositorio de datos del Ministerio con cache local persistente.
@@ -607,69 +658,348 @@ class GasolineraRepository(context: Context) {
         forceDownload: Boolean = false,
         onFinalizado: (Boolean) -> Unit
     ) {
+        actualizarEnSegundoPlanoDetallado(forceDownload) { resultado ->
+            onFinalizado(resultado.exitoso)
+        }
+    }
+
+    /**
+     * Variante con diagnostico de la descarga de precios.
+     *
+     * El trabajo es autonomo: no necesita ninguna instancia del widget de
+     * escritorio ni que la capsula flotante este visible. Al terminar deja
+     * el JSON en la cache persistente y notifica la causa concreta del
+     * fallo, si la hubo.
+     */
+    fun actualizarEnSegundoPlanoDetallado(
+        forceDownload: Boolean = false,
+        onFinalizado: (ResultadoDescarga) -> Unit
+    ) {
         if (!descargaEnCurso.compareAndSet(false, true)) {
             Log.w(TAG, "Ya hay una descarga de precios en curso")
-            onFinalizado(false)
+            notificarResultadoDetallado(
+                onFinalizado,
+                ResultadoDescarga(false, ErrorDescarga.EN_CURSO)
+            )
             return
         }
 
-        if (!forceDownload && !debeDescargar(obtenerEstadoDispositivo())) {
-            descargaEnCurso.set(false)
-            onFinalizado(false)
-            return
-        }
-
-        val request = Request.Builder()
-            .url(ENDPOINT)
-            .header("Accept", "application/json")
-            .header("User-Agent", "GasolinerasWidget/1.0")
-            .build()
+        val sesion = SesionDescarga(onFinalizado)
 
         try {
-            clienteHttp.newCall(request).enqueue(object : Callback {
+            if (!forceDownload && !debeDescargar(obtenerEstadoDispositivo())) {
+                finalizarDescarga(
+                    sesion,
+                    ResultadoDescarga(false, ErrorDescarga.NINGUNO)
+                )
+                return
+            }
+
+            iniciarDescarga(sesion, usarTlsCompat = false, intentosRed = 1)
+        } catch (e: Exception) {
+            Log.e(TAG, "No se pudo iniciar la descarga", e)
+            finalizarDescarga(
+                sesion,
+                ResultadoDescarga(false, ErrorDescarga.DESCONOCIDO)
+            )
+        }
+    }
+
+    /**
+     * Indica si hay una descarga en curso en este proceso.
+     */
+    fun hayDescargaEnCurso(): Boolean = descargaEnCurso.get()
+
+    /**
+     * Mensaje corto y legible para mostrar en la capsula o en la pantalla
+     * principal. No se usan acentos para que se vea igual en cualquier
+     * radio.
+     */
+    fun mensajeDescarga(resultado: ResultadoDescarga): String {
+        return when (resultado.error) {
+            ErrorDescarga.SIN_CONEXION ->
+                appContext.getString(R.string.download_error_no_connection)
+
+            ErrorDescarga.TIMEOUT ->
+                appContext.getString(R.string.download_error_timeout)
+
+            ErrorDescarga.SSL ->
+                appContext.getString(R.string.download_error_ssl)
+
+            ErrorDescarga.HTTP ->
+                appContext.getString(
+                    R.string.download_error_http_format,
+                    resultado.codigoHttp
+                )
+
+            ErrorDescarga.RESPUESTA_VACIA ->
+                appContext.getString(R.string.download_error_empty)
+
+            ErrorDescarga.JSON_NO_VALIDO ->
+                appContext.getString(R.string.download_error_invalid_json)
+
+            ErrorDescarga.GUARDADO ->
+                appContext.getString(R.string.download_error_storage)
+
+            ErrorDescarga.RED ->
+                appContext.getString(R.string.download_error_network)
+
+            ErrorDescarga.EN_CURSO ->
+                appContext.getString(R.string.floating_download_busy)
+
+            else ->
+                appContext.getString(R.string.download_error_unknown)
+        }
+    }
+
+    private fun iniciarDescarga(
+        sesion: SesionDescarga,
+        usarTlsCompat: Boolean,
+        intentosRed: Int
+    ) {
+        if (!hayConexionRed()) {
+            manejarSinConexion(sesion, usarTlsCompat, intentosRed)
+            return
+        }
+        ejecutarIntentoDescarga(sesion, usarTlsCompat, intentosRed)
+    }
+
+    private fun ejecutarIntentoDescarga(
+        sesion: SesionDescarga,
+        usarTlsCompat: Boolean,
+        intentosRed: Int
+    ) {
+        if (sesion.terminado.get()) return
+
+        if (!hayConexionRed()) {
+            manejarSinConexion(sesion, usarTlsCompat, intentosRed)
+            return
+        }
+
+        try {
+            val cliente = if (usarTlsCompat) clienteHttpTlsCompat else clienteHttp
+            val request = construirRequest()
+            cliente.newCall(request).enqueue(object : Callback {
 
                 override fun onFailure(call: Call, e: IOException) {
-                    descargaEnCurso.set(false)
-                    Log.w(
-                        TAG,
-                        "Descarga fallida; se mantiene la cache anterior",
-                        e
-                    )
-                    notificarResultado(onFinalizado, false)
+                    manejarFalloDescarga(sesion, e, usarTlsCompat, intentosRed)
                 }
 
                 override fun onResponse(call: Call, response: Response) {
-                    val actualizado = try {
-                        response.use { respuesta ->
-                            if (!respuesta.isSuccessful) {
-                                throw IOException("Respuesta HTTP ${respuesta.code}")
-                            }
-                            val json = respuesta.body?.string()
-                                ?: throw IOException("Respuesta vacia")
-                            validarJson(json)
-                            guardarCache(json)
-                        }
-                        Log.i(TAG, "Cache de precios actualizada")
-                        true
-                    } catch (e: Exception) {
-                        Log.w(
-                            TAG,
-                            "No se pudo guardar la cache; se mantiene la anterior",
-                            e
-                        )
-                        false
-                    } finally {
-                        descargaEnCurso.set(false)
-                    }
-
-                    notificarResultado(onFinalizado, actualizado)
+                    procesarRespuestaDescarga(
+                        sesion,
+                        response,
+                        usarTlsCompat,
+                        intentosRed
+                    )
                 }
             })
         } catch (e: Exception) {
-            descargaEnCurso.set(false)
-            Log.e(TAG, "No se pudo iniciar la descarga", e)
-            notificarResultado(onFinalizado, false)
+            manejarFalloDescarga(sesion, e, usarTlsCompat, intentosRed)
         }
+    }
+
+    private fun construirRequest(): Request {
+        // No se fija Accept-Encoding a mano: OkHttp lo anade y descomprime
+        // gzip de forma transparente cuando el servidor lo soporta.
+        return Request.Builder()
+            .url(ENDPOINT)
+            .header("Accept", "application/json")
+            .header("User-Agent", USER_AGENT)
+            .build()
+    }
+
+    private fun manejarFalloDescarga(
+        sesion: SesionDescarga,
+        error: Exception,
+        usarTlsCompat: Boolean,
+        intentosRed: Int
+    ) {
+        val causa = clasificarErrorDescarga(error)
+        Log.w(
+            TAG,
+            "Fallo de descarga (" + causa + ", tlsCompat=" + usarTlsCompat + ")",
+            error
+        )
+
+        when {
+            causa == ErrorDescarga.SSL && !usarTlsCompat -> {
+                Log.w(TAG, "Se reintenta con TLS compatible para el dominio oficial")
+                ejecutarIntentoDescarga(sesion, usarTlsCompat = true, intentosRed)
+            }
+
+            esErrorReintentable(causa) && intentosRed > 0 -> {
+                programarReintentoDescarga(sesion, usarTlsCompat, intentosRed - 1)
+            }
+
+            else -> {
+                finalizarDescarga(sesion, ResultadoDescarga(false, causa))
+            }
+        }
+    }
+
+    private fun programarReintentoDescarga(
+        sesion: SesionDescarga,
+        usarTlsCompat: Boolean,
+        intentosRed: Int
+    ) {
+        Log.i(TAG, "Se reintenta la descarga en " + RETRY_DELAY_MS + " ms")
+        handlerDescarga.postDelayed({
+            if (!sesion.terminado.get()) {
+                ejecutarIntentoDescarga(sesion, usarTlsCompat, intentosRed)
+            }
+        }, RETRY_DELAY_MS)
+    }
+
+    /**
+     * Si la red aun no esta lista (por ejemplo al arrancar la radio), se
+     * concede el mismo reintento que a un fallo transitorio antes de
+     * mostrar "Sin conexion".
+     */
+    private fun manejarSinConexion(
+        sesion: SesionDescarga,
+        usarTlsCompat: Boolean,
+        intentosRed: Int
+    ) {
+        if (intentosRed > 0) {
+            programarReintentoDescarga(sesion, usarTlsCompat, intentosRed - 1)
+        } else {
+            finalizarDescarga(
+                sesion,
+                ResultadoDescarga(false, ErrorDescarga.SIN_CONEXION)
+            )
+        }
+    }
+
+    private fun procesarRespuestaDescarga(
+        sesion: SesionDescarga,
+        response: Response,
+        usarTlsCompat: Boolean,
+        intentosRed: Int
+    ) {
+        response.use { respuesta ->
+            val codigo = respuesta.code
+            Log.d(TAG, "Respuesta HTTP " + codigo)
+
+            if (!respuesta.isSuccessful) {
+                if (codigo in 500..599 && intentosRed > 0) {
+                    programarReintentoDescarga(
+                        sesion,
+                        usarTlsCompat,
+                        intentosRed - 1
+                    )
+                    return
+                }
+                finalizarDescarga(
+                    sesion,
+                    ResultadoDescarga(false, ErrorDescarga.HTTP, codigo)
+                )
+                return
+            }
+
+            val json = try {
+                respuesta.body?.string()
+            } catch (e: Exception) {
+                manejarFalloDescarga(sesion, e, usarTlsCompat, intentosRed)
+                return
+            }
+
+            if (json.isNullOrBlank()) {
+                finalizarDescarga(
+                    sesion,
+                    ResultadoDescarga(false, ErrorDescarga.RESPUESTA_VACIA)
+                )
+                return
+            }
+
+            try {
+                validarJson(json)
+            } catch (e: Exception) {
+                Log.w(TAG, "El JSON descargado no es valido", e)
+                finalizarDescarga(
+                    sesion,
+                    ResultadoDescarga(false, ErrorDescarga.JSON_NO_VALIDO)
+                )
+                return
+            }
+
+            try {
+                guardarCache(json)
+            } catch (e: Exception) {
+                Log.e(TAG, "No se pudo guardar el JSON en la cache", e)
+                finalizarDescarga(
+                    sesion,
+                    ResultadoDescarga(false, ErrorDescarga.GUARDADO)
+                )
+                return
+            }
+
+            Log.i(TAG, "Cache de precios actualizada")
+            finalizarDescarga(sesion, ResultadoDescarga(true))
+        }
+    }
+
+    private fun finalizarDescarga(
+        sesion: SesionDescarga,
+        resultado: ResultadoDescarga
+    ) {
+        if (!sesion.terminado.compareAndSet(false, true)) return
+        descargaEnCurso.set(false)
+        notificarResultadoDetallado(sesion.onFinalizado, resultado)
+    }
+
+    private fun notificarResultadoDetallado(
+        onFinalizado: (ResultadoDescarga) -> Unit,
+        resultado: ResultadoDescarga
+    ) {
+        try {
+            onFinalizado(resultado)
+        } catch (e: Exception) {
+            Log.e(TAG, "No se pudo notificar el resultado de la descarga", e)
+        }
+    }
+
+    private fun esErrorReintentable(error: ErrorDescarga): Boolean {
+        return error == ErrorDescarga.TIMEOUT ||
+            error == ErrorDescarga.RED ||
+            error == ErrorDescarga.SIN_CONEXION
+    }
+
+    /**
+     * Recorre la cadena de causas para no perder el error real cuando
+     * OkHttp lo envuelve en otra IOException.
+     */
+    private fun clasificarErrorDescarga(error: Throwable): ErrorDescarga {
+        var actual: Throwable? = error
+        var nivel = 0
+
+        while (actual != null && nivel < MAX_PROFUNDIDAD_CAUSA) {
+            when {
+                actual is SSLException ||
+                    actual is CertPathValidatorException ||
+                    actual is CertificateException -> return ErrorDescarga.SSL
+
+                actual is SocketTimeoutException ||
+                    actual is InterruptedIOException -> return ErrorDescarga.TIMEOUT
+
+                actual is UnknownHostException ||
+                    actual is ConnectException ||
+                    actual is NoRouteToHostException ||
+                    actual is SocketException -> return ErrorDescarga.RED
+            }
+            actual = actual.cause
+            nivel++
+        }
+
+        return ErrorDescarga.RED
+    }
+
+    private fun hayConexionRed(): Boolean {
+        val gestor = appContext.getSystemService(Context.CONNECTIVITY_SERVICE)
+            as? ConnectivityManager ?: return true
+        val red = gestor.activeNetwork ?: return false
+        val capacidades = gestor.getNetworkCapabilities(red) ?: return false
+        return capacidades.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     /**
@@ -677,17 +1007,6 @@ class GasolineraRepository(context: Context) {
      * existe una cache valida.
      */
     fun obtenerTimestampCache(): Long = leerTimestamp()
-
-    private fun notificarResultado(
-        onFinalizado: (Boolean) -> Unit,
-        actualizado: Boolean
-    ) {
-        try {
-            onFinalizado(actualizado)
-        } catch (e: Exception) {
-            Log.e(TAG, "No se pudo notificar el resultado de la descarga", e)
-        }
-    }
 
     /**
      * Carga de forma sincrona la lista desde la cache local. No hace red.
@@ -1311,6 +1630,16 @@ class GasolineraRepository(context: Context) {
         val timestamp: Long
     )
 
+    /**
+     * Estado compartido por los intentos de una misma descarga. Evita
+     * notificar dos veces el resultado si un reintento y una respuesta
+     * llegan a la vez.
+     */
+    private class SesionDescarga(
+        val onFinalizado: (ResultadoDescarga) -> Unit,
+        val terminado: AtomicBoolean = AtomicBoolean(false)
+    )
+
     companion object {
         val MARCAS_TRADICIONALES = setOf(
             "REPSOL",
@@ -1329,6 +1658,16 @@ class GasolineraRepository(context: Context) {
         private const val ENDPOINT =
             "https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/" +
                 "PreciosCarburantes/EstacionesTerrestres/"
+        private const val HOST_MINISTERIO = "sedeaplicaciones.minetur.gob.es"
+        private const val USER_AGENT = "Mozilla/5.0 (Android; GasolinerasWidget)"
+        private const val CONNECT_TIMEOUT_SECONDS = 30L
+        private const val READ_TIMEOUT_SECONDS = 60L
+        private const val WRITE_TIMEOUT_SECONDS = 30L
+        // El JSON oficial ronda los 12 MB y en una radio con datos
+        // compartidos puede tardar mas de medio minuto.
+        private const val CALL_TIMEOUT_SECONDS = 180L
+        private const val RETRY_DELAY_MS = 2000L
+        private const val MAX_PROFUNDIDAD_CAUSA = 8
         private const val CACHE_FILE_NAME = "gasolineras_api_cache.json"
         private const val CACHE_PREFS_NAME = "gasolineras_cache_prefs"
         private const val KEY_LAST_SUCCESS = "last_success_millis"
@@ -1377,10 +1716,118 @@ class GasolineraRepository(context: Context) {
 
         private val descargaEnCurso = AtomicBoolean(false)
 
+        private val handlerDescarga = Handler(Looper.getMainLooper())
+
+        // El cliente normal negocia solo TLS 1.2 y 1.3. OkHttp anade
+        // Accept-Encoding gzip y descomprime la respuesta de forma
+        // transparente, sin cambiar el tamano del JSON si el servidor
+        // decide enviarlo sin comprimir.
+        private val ESPECIFICACION_TLS_MODERNA: ConnectionSpec =
+            ConnectionSpec.Builder(ConnectionSpec.MODERN_TLS)
+                .tlsVersions(TlsVersion.TLS_1_3, TlsVersion.TLS_1_2)
+                .build()
+
+        private val ESPECIFICACION_TLS_COMPATIBLE: ConnectionSpec =
+            ConnectionSpec.Builder(ConnectionSpec.COMPATIBLE_TLS)
+                .tlsVersions(TlsVersion.TLS_1_3, TlsVersion.TLS_1_2)
+                .build()
+
         private val clienteHttp = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .callTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .connectionSpecs(listOf(ESPECIFICACION_TLS_MODERNA))
             .build()
+
+        /**
+         * Cliente de reserva para radios antiguas que no pueden validar la
+         * cadena del dominio oficial. Solo se usa tras un fallo SSL, el
+         * interceptor de host rechaza cualquier URL que no sea la oficial y
+         * OkHttp sigue verificando el nombre del host con su verificador
+         * por defecto. El certificado debe seguir vigente.
+         */
+        private val clienteHttpTlsCompat: OkHttpClient by lazy {
+            val gestorConfianza = crearGestorConfianzaCompat()
+            OkHttpClient.Builder()
+                .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .connectionSpecs(listOf(ESPECIFICACION_TLS_COMPATIBLE))
+                .sslSocketFactory(
+                    crearFabricaSslCompat(gestorConfianza),
+                    gestorConfianza
+                )
+                .addNetworkInterceptor { cadena ->
+                    if (!cadena.request().url.host.equals(
+                            HOST_MINISTERIO,
+                            ignoreCase = true
+                        )
+                    ) {
+                        throw IOException("Host no permitido en TLS compatible")
+                    }
+                    cadena.proceed(cadena.request())
+                }
+                .build()
+        }
+
+        private fun crearGestorConfianzaCompat(): X509TrustManager {
+            val fabrica = TrustManagerFactory.getInstance(
+                TrustManagerFactory.getDefaultAlgorithm()
+            )
+            fabrica.init(null as KeyStore?)
+            val predeterminado = fabrica.trustManagers
+                .filterIsInstance<X509TrustManager>()
+                .firstOrNull()
+                ?: throw IllegalStateException("Sin TrustManager del sistema")
+
+            return object : X509TrustManager {
+                override fun checkClientTrusted(
+                    cadena: Array<X509Certificate>,
+                    tipo: String
+                ) {
+                    predeterminado.checkClientTrusted(cadena, tipo)
+                }
+
+                override fun checkServerTrusted(
+                    cadena: Array<X509Certificate>,
+                    tipo: String
+                ) {
+                    try {
+                        predeterminado.checkServerTrusted(cadena, tipo)
+                    } catch (e: CertificateException) {
+                        validarCadenaCompat(cadena, e)
+                    }
+                }
+
+                override fun getAcceptedIssuers(): Array<X509Certificate> {
+                    return predeterminado.acceptedIssuers
+                }
+            }
+        }
+
+        private fun crearFabricaSslCompat(
+            gestor: X509TrustManager
+        ): SSLSocketFactory {
+            val contexto = SSLContext.getInstance("TLS")
+            contexto.init(null, arrayOf<TrustManager>(gestor), SecureRandom())
+            return contexto.socketFactory
+        }
+
+        private fun validarCadenaCompat(
+            cadena: Array<X509Certificate>,
+            causa: CertificateException
+        ) {
+            if (cadena.isEmpty()) throw causa
+            cadena[0].checkValidity()
+            Log.w(
+                TAG,
+                "Cadena TLS aceptada en modo compatible; el host se verifica aparte",
+                causa
+            )
+        }
     }
 }

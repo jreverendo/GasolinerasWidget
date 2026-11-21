@@ -16,6 +16,8 @@ import android.widget.EditText
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 /**
@@ -37,13 +39,19 @@ class MainActivity : Activity() {
     private lateinit var navigationGroup: RadioGroup
     private lateinit var navigationStatus: TextView
     private lateinit var navigationUsageButton: Button
+    private lateinit var downloadButton: Button
+    private lateinit var downloadStatus: TextView
+    private lateinit var repository: GasolineraRepository
 
     private var esperandoOverlay = false
+    private var descargaEnCurso = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         aplicarInsetsSistema()
+
+        repository = GasolineraRepository(applicationContext)
 
         overlayStatus = findViewById(R.id.main_overlay_status)
         locationStatus = findViewById(R.id.main_location_status)
@@ -55,11 +63,16 @@ class MainActivity : Activity() {
         navigationGroup = findViewById(R.id.main_nav_group)
         navigationStatus = findViewById(R.id.main_nav_status)
         navigationUsageButton = findViewById(R.id.main_nav_usage_button)
+        downloadButton = findViewById(R.id.button_main_download)
+        downloadStatus = findViewById(R.id.main_download_status)
 
         seleccionarCarburante(FloatingWidgetPreferences.leerCarburante(this))
         mostrarLitros(FloatingWidgetPreferences.leerLitrosDeposito(this))
         actualizarEstadoConfiguracion()
         prepararSelectorNavegador()
+        actualizarEstadoDescarga()
+
+        downloadButton.setOnClickListener { descargarPrecios() }
 
         findViewById<Button>(R.id.button_floating).setOnClickListener {
             if (guardarConfiguracionFlotante(silencioso = true)) {
@@ -87,6 +100,7 @@ class MainActivity : Activity() {
         }
         actualizarEstado()
         actualizarEstadoNavegacion()
+        actualizarEstadoDescarga()
         actualizarEstadoConRetraso()
     }
 
@@ -197,7 +211,6 @@ class MainActivity : Activity() {
     }
 
     private fun iniciarServicio() {
-        val repository = GasolineraRepository(applicationContext)
         repository.capturarUbicacionConocida()
         repository.solicitarRefrescoManual()
 
@@ -341,6 +354,57 @@ class MainActivity : Activity() {
         )
 
         stopButton.visibility = if (activo) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * Descarga el JSON del Ministerio desde la pantalla principal. Es un
+     * trabajo autonomo: no necesita ninguna instancia del widget de
+     * escritorio. Al terminar refresca la capsula flotante y los widgets
+     * que existan.
+     */
+    private fun descargarPrecios() {
+        if (descargaEnCurso) return
+
+        descargaEnCurso = true
+        downloadButton.isEnabled = false
+        downloadStatus.setText(R.string.main_download_in_progress)
+
+        repository.actualizarEnSegundoPlanoDetallado(forceDownload = true) { resultado ->
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+
+                descargaEnCurso = false
+                downloadButton.isEnabled = true
+
+                if (resultado.exitoso) {
+                    downloadStatus.setText(R.string.main_download_ok)
+                    FloatingWidgetService.solicitarRecarga(this)
+                    GasolinerasWidgetProvider.notificarDatosActualizados(this)
+                } else {
+                    downloadStatus.text = repository.mensajeDescarga(resultado)
+                }
+            }
+        }
+    }
+
+    private fun actualizarEstadoDescarga() {
+        if (!this::downloadStatus.isInitialized) return
+
+        val timestamp = repository.obtenerTimestampCache()
+        if (timestamp <= 0L) {
+            downloadStatus.setText(R.string.main_download_never)
+            return
+        }
+
+        downloadStatus.text = getString(
+            R.string.main_download_last_format,
+            formatearFechaDescarga(timestamp)
+        )
+    }
+
+    private fun formatearFechaDescarga(timestamp: Long): String {
+        val formato = SimpleDateFormat("dd/MM HH:mm", Locale.getDefault())
+        return formato.format(Date(timestamp))
     }
 
     /**
