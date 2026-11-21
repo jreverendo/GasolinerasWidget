@@ -77,7 +77,6 @@
     <string name="floating_no_more">No hay mas estaciones para mostrar.</string>
     <string name="floating_updating">Actualizando ubicacion y precios...</string>
     <string name="floating_download_ok">Precios actualizados.</string>
-    <string name="floating_download_fail">No se pudieron actualizar los precios.</string>
     <string name="floating_location_hint">Sin permiso de ubicacion se usara la ultima posicion conocida.</string>
 
     <string name="main_nav_title">Navegador GPS</string>
@@ -94,4 +93,23 @@
     <string name="main_nav_status_preguntar">Se preguntara que navegador usar.</string>
     <string name="main_nav_usage_button">Permitir deteccion del navegador activo</string>
     <string name="main_nav_usage_missing">No se pudieron abrir los ajustes de acceso de uso.</string>
+
+    <string name="main_download_title">Datos de precios</string>
+    <string name="main_download_hint">La descarga funciona sin el widget de escritorio y actualiza la capsula flotante.</string>
+    <string name="main_download_button">Descargar precios ahora</string>
+    <string name="main_download_in_progress">Descargando precios del Ministerio...</string>
+    <string name="main_download_ok">Precios descargados y guardados en cache.</string>
+    <string name="main_download_last_format">Ultima descarga correcta: %1$s</string>
+    <string name="main_download_never">Ultima descarga correcta: sin datos</string>
+    <string name="floating_download_busy">Descarga en curso...</string>
+
+    <string name="download_error_timeout">Error descarga: Tiempo agotado (Timeout)</string>
+    <string name="download_error_ssl">Error descarga: Fallo SSL/Certificado</string>
+    <string name="download_error_no_connection">Error descarga: Sin conexion</string>
+    <string name="download_error_http_format">Error descarga: HTTP %1$d</string>
+    <string name="download_error_empty">Error descarga: Respuesta vacia</string>
+    <string name="download_error_invalid_json">Error descarga: JSON no valido</string>
+    <string name="download_error_storage">Error descarga: No se pudo guardar</string>
+    <string name="download_error_network">Error descarga: Fallo de red</string>
+    <string name="download_error_unknown">Error descarga: Error desconocido</string>
 </resources>

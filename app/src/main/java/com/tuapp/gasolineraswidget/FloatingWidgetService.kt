@@ -852,19 +852,25 @@ class FloatingWidgetService : Service() {
     }
 
     private fun descargarPreciosForzado() {
+        if (repository.hayDescargaEnCurso()) {
+            mostrarAviso(R.string.floating_download_busy)
+            return
+        }
+
         mostrarAviso(R.string.floating_updating)
-        repository.actualizarEnSegundoPlano(forceDownload = true) { actualizado ->
+        repository.actualizarEnSegundoPlanoDetallado(forceDownload = true) { resultado ->
             handler.post {
                 if (!activo) return@post
-                mostrarAviso(
-                    if (actualizado) {
-                        R.string.floating_download_ok
-                    } else {
-                        R.string.floating_download_fail
-                    }
-                )
-                if (actualizado) {
+
+                if (resultado.exitoso) {
+                    mostrarAviso(R.string.floating_download_ok)
                     cargarDatos(mostrarCarga = false)
+                } else {
+                    val mensaje = repository.mensajeDescarga(resultado)
+                    mostrarAviso(mensaje)
+                    if (!datosVisibles) {
+                        mostrarErrorDescarga(mensaje)
+                    }
                 }
             }
         }
@@ -901,10 +907,22 @@ class FloatingWidgetService : Service() {
                     }
 
                     if (descargar) {
-                        repository.actualizarEnSegundoPlano { actualizado ->
-                            if (actualizado) {
+                        val sinDatos = resultado.gasolineras.isEmpty()
+                        val generacionDescarga = generacion
+                        repository.actualizarEnSegundoPlanoDetallado { descarga ->
+                            if (descarga.exitoso) {
                                 handler.post {
                                     if (activo) cargarDatos(mostrarCarga = false)
+                                }
+                            } else if (descarga.error != ErrorDescarga.NINGUNO) {
+                                handler.post {
+                                    if (activo && sinDatos && !datosVisibles &&
+                                        generacionCarga.get() == generacionDescarga
+                                    ) {
+                                        mostrarErrorDescarga(
+                                            repository.mensajeDescarga(descarga)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1162,7 +1180,19 @@ class FloatingWidgetService : Service() {
     }
 
     private fun mostrarVacio() {
-        nombre.text = getString(R.string.widget_empty)
+        mostrarMensajeEstado(getString(R.string.widget_empty))
+    }
+
+    /**
+     * Deja el diagnostico de la descarga en la capsula para poder leerlo
+     * directamente en la pantalla del coche.
+     */
+    private fun mostrarErrorDescarga(mensaje: String) {
+        mostrarMensajeEstado(mensaje)
+    }
+
+    private fun mostrarMensajeEstado(mensaje: String) {
+        nombre.text = mensaje
         distancia.text = ""
         precio.visibility = View.GONE
         ahorro.visibility = View.GONE
@@ -1420,8 +1450,15 @@ class FloatingWidgetService : Service() {
         if (!debeDescargarJsonDeRuta()) return
         if (!hayConexion()) return
 
-        repository.actualizarEnSegundoPlano(forceDownload = true) { actualizado ->
-            if (!actualizado) return@actualizarEnSegundoPlano
+        repository.actualizarEnSegundoPlanoDetallado(forceDownload = true) { descarga ->
+            if (!descarga.exitoso) {
+                Log.w(
+                    TAG,
+                    "No se pudieron actualizar los precios en ruta: " +
+                        repository.mensajeDescarga(descarga)
+                )
+                return@actualizarEnSegundoPlanoDetallado
+            }
             handler.post {
                 if (activo) cargarDatos(mostrarCarga = false)
             }
@@ -1497,6 +1534,10 @@ class FloatingWidgetService : Service() {
 
     private fun mostrarAviso(mensaje: Int) {
         Toast.makeText(this, mensaje, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun mostrarAviso(mensaje: String) {
+        Toast.makeText(this, mensaje, Toast.LENGTH_LONG).show()
     }
 
     private fun tienePermisoUbicacion(): Boolean {
