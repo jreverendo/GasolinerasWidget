@@ -34,6 +34,8 @@
     <color name="config_accent">#80CBC4</color>
     <color name="config_button">#1565C0</color>
     <color name="config_button_secondary">#37474F</color>
+    <color name="config_surface">#1C1C1E</color>
+    <color name="config_surface_stroke">#2E2E33</color>
 
     <color name="floating_card_bg">#FFFFFF</color>
     <color name="floating_header_bg">#F1F5F9</color>

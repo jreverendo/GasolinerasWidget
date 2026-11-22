@@ -131,18 +131,19 @@ class GasolineraRemoteViewsFactory(
             R.id.item_distancia,
             context.getString(R.string.formato_distancia, gasolinera.distancia)
         )
-        views.setTextViewText(R.id.tv_barras, textoAcceso(gasolinera.puntuacionAcceso))
-        val colorBarras = when {
-            gasolinera.id == actual.idMasCercana ->
-                context.getColor(R.color.acceso_cercana)
-
-            gasolinera.id == actual.idMasLejana ->
-                context.getColor(R.color.acceso_lejana)
-
-            else ->
-                context.getColor(R.color.acceso_neutra)
-        }
-        views.setTextColor(R.id.tv_barras, colorBarras)
+        views.setTextViewText(
+            R.id.tv_barras,
+            IndicadorAcceso.texto(gasolinera.puntuacionAcceso)
+        )
+        views.setTextColor(
+            R.id.tv_barras,
+            IndicadorAcceso.color(
+                context,
+                gasolinera.id,
+                actual.idMasCercana,
+                actual.idMasLejana
+            )
+        )
         views.setTextViewText(R.id.item_etiqueta, gasolinera.etiquetaRuta)
         views.setTextColor(
             R.id.item_etiqueta,
@@ -215,16 +216,6 @@ class GasolineraRemoteViewsFactory(
 
     override fun onDestroy() {
         estado = estado.copy(gasolineras = emptyList())
-    }
-
-    private fun textoAcceso(puntuacion: Int): String {
-        return when (puntuacion) {
-            5 -> " \u2582\u2583\u2585\u2586"
-            4 -> " \u2582\u2583\u2585_"
-            3 -> " \u2582\u2583__"
-            2 -> " \u2582___"
-            else -> " ____"
-        }
     }
 
     private data class EstadoWidget(

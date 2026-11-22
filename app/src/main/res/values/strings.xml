@@ -63,6 +63,7 @@
     <string name="floating_notification_text">Gasolineras sobre el navegador. Toca para abrir la app.</string>
     <string name="floating_stop_action">Detener</string>
     <string name="floating_gps_description">Actualizar ubicacion</string>
+    <string name="floating_acceso_description">Barras de proximidad</string>
     <string name="floating_json_description">Actualizar precios</string>
     <string name="floating_close_description">Cerrar</string>
     <string name="floating_criterio_barata">Barata</string>
@@ -102,6 +103,20 @@
     <string name="main_download_last_format">Ultima descarga correcta: %1$s</string>
     <string name="main_download_never">Ultima descarga correcta: sin datos</string>
     <string name="floating_download_busy">Descarga en curso...</string>
+
+    <!-- Donaciones voluntarias con Ko-fi. -->
+    <string name="floating_coffee_description">Apoya el proyecto con Ko-fi</string>
+    <string name="kofi_section_title">Apoya el proyecto</string>
+    <string name="kofi_section_text">Si la app te ha servido para ahorrarte unos dineros en cada deposito, puedes invitarme a un cafe para ayudar a publicarla en Google Play.</string>
+    <string name="kofi_invite_button">Invitar a un cafe (Ko-fi)</string>
+    <string name="kofi_show_qr_button">Mostrar QR</string>
+    <string name="kofi_qr_short_text">Si te ha ahorrado unos dineros, invita a un cafe</string>
+    <string name="kofi_qr_capsule_text">Si te ha ahorrado unos dineros, invita a un cafe:</string>
+    <string name="kofi_url_short">ko-fi.com/jrvjrv</string>
+    <string name="kofi_qr_close">Cerrar QR</string>
+    <string name="kofi_dialog_close">Cerrar</string>
+    <string name="kofi_qr_image_description">Codigo QR de Ko-fi</string>
+    <string name="kofi_open_failed">No se pudo abrir el navegador.</string>
 
     <string name="download_error_timeout">Error descarga: Tiempo agotado (Timeout)</string>
     <string name="download_error_ssl">Error descarga: Fallo SSL/Certificado</string>

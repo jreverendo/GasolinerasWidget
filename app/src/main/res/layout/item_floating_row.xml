@@ -48,6 +48,16 @@
                 android:maxLines="1"
                 android:textColor="@color/widget_text_secondary"
                 android:textSize="15sp" />
+
+            <ImageView
+                android:id="@+id/row_acceso"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginStart="4dp"
+                android:contentDescription="@string/floating_acceso_description"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_acceso_barras_3"
+                android:tint="@color/acceso_neutra" />
         </LinearLayout>
 
         <LinearLayout

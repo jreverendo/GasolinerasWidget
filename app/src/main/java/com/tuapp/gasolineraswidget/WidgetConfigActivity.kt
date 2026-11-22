@@ -48,6 +48,9 @@ class WidgetConfigActivity : Activity() {
         val campoLitros = findViewById<EditText>(R.id.edit_litros_deposito)
         mostrarLitros(campoLitros, WidgetDepositPreferences.leer(this))
 
+        // Tarjeta discreta de donaciones voluntarias al final de la pantalla.
+        KoFiSupport.conectarTarjeta(this)
+
         findViewById<Button>(R.id.button_save).setOnClickListener {
             val clave = claveSeleccionada(grupo)
             if (clave == null) {

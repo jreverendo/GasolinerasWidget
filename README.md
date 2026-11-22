@@ -49,3 +49,11 @@ Para funcionar correctamente en segundo plano mientras conduces, la aplicación 
 ## 📄 Licencia
 
 Proyecto distribuido bajo licencia MIT. Puedes usar, modificar y compartir el código libremente.
+
+---
+
+## ☕ Apoya el proyecto
+
+GasolinerasWidget es gratuita y sin anuncios. Si te ha servido para ahorrarte unos dineros en cada deposito, puedes invitarme a un cafe para ayudar a cubrir los 25 EUR de la cuenta de desarrollador de Google Play y publicarla alli oficialmente:
+
+[![Invitame a un cafe en Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/jrvjrv)

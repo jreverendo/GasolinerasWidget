@@ -23,6 +23,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -38,6 +39,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -64,10 +66,11 @@ import kotlin.math.sqrt
  * El servicio no descarga ni calcula nada en el hilo principal: toda la
  * lectura de cache, ubicacion y red se hace en un ejecutor de un solo hilo.
  *
- * En ruta solicita actualizaciones de ubicacion cada 1500 metros y 30
- * segundos, y refresca la capsula sin intervencion del usuario. Un vigilante
- * de inactividad y los eventos de pantalla apagan el GPS cuando no hace
- * falta, de modo que el servicio nunca agota la bateria del coche.
+ * En ruta solicita actualizaciones de ubicacion cada 10 segundos y
+ * recalcula la lista al superar 250 metros con corriente externa o 1500
+ * metros con bateria, refrescando la capsula sin intervencion del usuario.
+ * Un vigilante de inactividad y los eventos de pantalla apagan el GPS cuando
+ * no hace falta, de modo que el servicio nunca agota la bateria del coche.
  *
  * La capsula se adapta al tamano de la ventana: en un telefono en vertical
  * conserva su tamano compacto original, y en pantallas grandes o en
@@ -98,22 +101,28 @@ class FloatingWidgetService : Service() {
     private lateinit var nombre: TextView
     private lateinit var etiquetaCarburante: TextView
     private lateinit var distancia: TextView
+    private lateinit var iconoAcceso: ImageView
     private lateinit var precio: TextView
     private lateinit var ahorro: TextView
     private lateinit var btnRed: TextView
     private lateinit var btnCriterio: TextView
     private lateinit var btnGps: ImageButton
     private lateinit var btnJson: ImageButton
+    private lateinit var btnCafe: ImageButton
     private lateinit var btnCerrar: ImageButton
     private lateinit var btnExpandir: TextView
     private lateinit var filasExtra: LinearLayout
     private lateinit var cabecera: View
     private lateinit var filaProtagonista: View
+    private lateinit var panelQr: View
+    private lateinit var qrImagen: ImageView
+    private lateinit var btnCerrarQr: View
 
     private var redActual = WidgetNetworkPreferences.TODAS
     private var criterioActual = FloatingWidgetPreferences.CRITERIO_BARATA
     private var carburanteActual = FuelOptions.GASOLINA_95
     private var expandido = false
+    private var panelQrVisible = false
     private var ultimoResultado: ResultadoLista? = null
     private var datosVisibles = false
 
@@ -135,6 +144,12 @@ class FloatingWidgetService : Service() {
 
     /** Factor de escala activo para textos, botones y espaciados. */
     private var escalaActual = 1f
+
+    /**
+     * Ultimo umbral de desplazamiento aplicado. Solo se usa para dejar un
+     * rastro en el log cuando cambia la alimentacion del dispositivo.
+     */
+    private var ultimoUmbralRecalculo = 0.0
 
     /**
      * Medidas originales de cada vista tal y como se inflan desde el XML.
@@ -313,6 +328,11 @@ class FloatingWidgetService : Service() {
             // caber en la nueva altura y ancho escalados.
             ultimoResultado?.let { aplicarResultado(it) }
         }
+        if (panelQrVisible) {
+            // Al reaplicar la escala el QR vuelve a su tamano base: se
+            // recalcula el hueco real de la nueva orientacion.
+            ajustarTamanoQr()
+        }
         ajustarDentroDePantalla(true)
     }
 
@@ -429,17 +449,22 @@ class FloatingWidgetService : Service() {
         nombre = vista.findViewById(R.id.floating_nombre)
         etiquetaCarburante = vista.findViewById(R.id.floating_combustible)
         distancia = vista.findViewById(R.id.floating_distancia)
+        iconoAcceso = vista.findViewById(R.id.floating_acceso)
         precio = vista.findViewById(R.id.floating_precio)
         ahorro = vista.findViewById(R.id.floating_ahorro)
         btnRed = vista.findViewById(R.id.btn_network)
         btnCriterio = vista.findViewById(R.id.btn_criterio)
         btnGps = vista.findViewById(R.id.btn_gps)
         btnJson = vista.findViewById(R.id.btn_json)
+        btnCafe = vista.findViewById(R.id.btn_coffee)
         btnCerrar = vista.findViewById(R.id.btn_close)
         btnExpandir = vista.findViewById(R.id.btn_expand)
         filasExtra = vista.findViewById(R.id.floating_extra_rows)
         cabecera = vista.findViewById(R.id.floating_header)
         filaProtagonista = vista.findViewById(R.id.floating_protagonist_row)
+        panelQr = vista.findViewById(R.id.floating_kofi_panel)
+        qrImagen = vista.findViewById(R.id.floating_kofi_qr)
+        btnCerrarQr = vista.findViewById(R.id.floating_kofi_close)
 
         (vista as CapsuleDragLayout).onDragListener = objetoArrastre
         actualizarEtiquetaCarburante()
@@ -502,6 +527,8 @@ class FloatingWidgetService : Service() {
         btnCriterio.setOnClickListener { ciclarCriterio() }
         btnGps.setOnClickListener { refrescarUbicacion() }
         btnJson.setOnClickListener { descargarPreciosForzado() }
+        btnCafe.setOnClickListener { mostrarPanelQr() }
+        btnCerrarQr.setOnClickListener { cerrarPanelQr() }
         btnCerrar.setOnClickListener { detenerServicio() }
         btnExpandir.setOnClickListener { alternarExpansion() }
     }
@@ -952,16 +979,28 @@ class FloatingWidgetService : Service() {
         }
 
         val litros = FloatingWidgetPreferences.leerLitrosDeposito(this)
-        pintarProtagonista(protagonista, resultado.mediaProvincial, litros)
+        pintarProtagonista(
+            protagonista,
+            resultado.mediaProvincial,
+            litros,
+            resultado.idMasCercana,
+            resultado.idMasLejana
+        )
 
         val extras = ordenadas.drop(1).take(MAX_FILAS_EXTRA)
-        construirFilasExtra(extras, resultado.mediaProvincial, litros)
+        construirFilasExtra(
+            extras,
+            resultado.mediaProvincial,
+            litros,
+            resultado.idMasCercana,
+            resultado.idMasLejana
+        )
 
         // Solo hay desplegable si alguna fila ha cabido en la altura libre.
         val hayExtras = filasExtra.childCount > 0
         if (!hayExtras) expandido = false
         actualizarBotonExpansion(hayExtras)
-        filasExtra.visibility = if (expandido) View.VISIBLE else View.GONE
+        aplicarVisibilidadExtras()
         datosVisibles = true
         ajustarDentroDePantalla(true)
     }
@@ -1019,10 +1058,13 @@ class FloatingWidgetService : Service() {
     private fun pintarProtagonista(
         gasolinera: Gasolinera,
         mediaProvincial: Double,
-        litrosDeposito: Float
+        litrosDeposito: Float,
+        idMasCercana: String,
+        idMasLejana: String
     ) {
         nombre.text = gasolinera.nombre
         distancia.text = textoDistancia(gasolinera)
+        pintarIndicadorAcceso(iconoAcceso, gasolinera, idMasCercana, idMasLejana)
         precio.visibility = View.VISIBLE
         precio.text = String.format(Locale.US, "%.3f", gasolinera.precio)
 
@@ -1048,7 +1090,9 @@ class FloatingWidgetService : Service() {
     private fun construirFilasExtra(
         lista: List<Gasolinera>,
         mediaProvincial: Double,
-        litrosDeposito: Float
+        litrosDeposito: Float,
+        idMasCercana: String,
+        idMasLejana: String
     ) {
         filasExtra.removeAllViews()
 
@@ -1083,6 +1127,12 @@ class FloatingWidgetService : Service() {
 
             fila.findViewById<TextView>(R.id.row_nombre).text = gasolinera.nombre
             fila.findViewById<TextView>(R.id.row_distancia).text = textoDistancia(gasolinera)
+            pintarIndicadorAcceso(
+                fila.findViewById(R.id.row_acceso),
+                gasolinera,
+                idMasCercana,
+                idMasLejana
+            )
 
             val vistaPrecio = fila.findViewById<TextView>(R.id.row_precio)
             vistaPrecio.text = String.format(Locale.US, "%.3f", gasolinera.precio)
@@ -1106,6 +1156,26 @@ class FloatingWidgetService : Service() {
             fila.setOnClickListener { abrirNavegacion(gasolinera) }
             filasExtra.addView(fila)
         }
+    }
+
+    /**
+     * Pinta el indicador de cercania de una estacion con el mismo nivel de
+     * barras y el mismo color que el widget de escritorio. Se llama cada vez
+     * que se pinta una estacion, tanto en la tarjeta protagonista como en
+     * las filas del desplegable.
+     */
+    private fun pintarIndicadorAcceso(
+        vista: ImageView,
+        gasolinera: Gasolinera,
+        idMasCercana: String,
+        idMasLejana: String
+    ) {
+        vista.visibility = View.VISIBLE
+        vista.setImageResource(IndicadorAcceso.drawable(gasolinera.puntuacionAcceso))
+        vista.imageTintList = ColorStateList.valueOf(
+            IndicadorAcceso.color(this, gasolinera.id, idMasCercana, idMasLejana)
+        )
+        vista.contentDescription = getString(R.string.floating_acceso_description)
     }
 
     /** Distancia con el aviso discreto cuando la estacion queda detras. */
@@ -1157,21 +1227,101 @@ class FloatingWidgetService : Service() {
             return
         }
         expandido = !expandido
-        filasExtra.visibility = if (expandido) View.VISIBLE else View.GONE
+        aplicarVisibilidadExtras()
         actualizarTextosControles()
         ajustarDentroDePantalla(true)
+    }
+
+    /**
+     * Muestra el QR de Ko-fi dentro de la propia capsula. Solo cambia la
+     * visibilidad de las vistas: no reinicia el servicio, ni las
+     * actualizaciones de ubicacion, ni el factor de escala, y el arrastre
+     * sigue funcionando porque el panel vive en el mismo contenedor.
+     */
+    private fun mostrarPanelQr() {
+        if (panelQrVisible) return
+        panelQrVisible = true
+        panelQr.visibility = View.VISIBLE
+        filaProtagonista.visibility = View.GONE
+        aplicarVisibilidadExtras()
+        ajustarTamanoQr()
+        ajustarDentroDePantalla(true)
+    }
+
+    /**
+     * Vuelve al instante a la lista de gasolineras, con el desplegable en el
+     * mismo estado en el que estaba antes de abrir el QR.
+     */
+    private fun cerrarPanelQr() {
+        if (!panelQrVisible) return
+        panelQrVisible = false
+        panelQr.visibility = View.GONE
+        filaProtagonista.visibility = View.VISIBLE
+        aplicarVisibilidadExtras()
+        ajustarDentroDePantalla(true)
+    }
+
+    /** El desplegable solo se ve con el QR cerrado y el usuario expandido. */
+    private fun aplicarVisibilidadExtras() {
+        filasExtra.visibility = if (!panelQrVisible && expandido) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
+    }
+
+    /**
+     * Ajusta el QR al hueco real de la pantalla. En una pantalla de coche
+     * crece hasta 300 dp para poder escanearlo desde el asiento; en un
+     * telefono apaisado se reduce lo justo para que el boton de cerrar y la
+     * URL sigan visibles. Solo cambia el tamano de la imagen: no toca la
+     * escala general de la capsula ni reinicia ninguna actualizacion.
+     */
+    private fun ajustarTamanoQr() {
+        val ancho = anchoContenidoCapsula()
+        if (ancho <= 0) return
+
+        val lp = qrImagen.layoutParams
+        // Se mide el panel sin el QR para conocer el alto fijo real, ya
+        // escalado, que ocupan textos, URL, boton y margenes.
+        lp.width = 0
+        lp.height = 0
+        qrImagen.layoutParams = lp
+        panelQr.measure(
+            View.MeasureSpec.makeMeasureSpec(ancho, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+
+        val altoCabecera = if (this::cabecera.isInitialized) {
+            medirAlto(cabecera, ancho)
+        } else {
+            0
+        }
+        val rellenoRaiz = (root?.paddingTop ?: 0) + (root?.paddingBottom ?: 0)
+        val hueco = medirPantalla().altoPx - altoCabecera -
+            panelQr.measuredHeight - rellenoRaiz - dp(MARGEN_SEGURIDAD_ALTO_DP)
+        val porAncho = (ancho * FRACCION_ANCHO_QR).toInt()
+        val lado = hueco.coerceAtMost(porAncho)
+            .coerceIn(dp(QR_MINIMO_DP), dp(QR_MAXIMO_DP))
+            .coerceAtMost(QR_MAXIMO_PX)
+
+        lp.width = lado
+        lp.height = lado
+        qrImagen.layoutParams = lp
+        panelQr.requestLayout()
     }
 
     private fun mostrarCargando() {
         nombre.text = getString(R.string.floating_loading)
         distancia.text = ""
+        iconoAcceso.visibility = View.GONE
         precio.visibility = View.GONE
         ahorro.visibility = View.GONE
         infoProtagonista.isClickable = false
         infoProtagonista.setOnClickListener(null)
         filasExtra.removeAllViews()
-        filasExtra.visibility = View.GONE
         expandido = false
+        aplicarVisibilidadExtras()
         datosVisibles = false
         btnExpandir.isEnabled = false
         btnExpandir.alpha = 0.35f
@@ -1194,13 +1344,14 @@ class FloatingWidgetService : Service() {
     private fun mostrarMensajeEstado(mensaje: String) {
         nombre.text = mensaje
         distancia.text = ""
+        iconoAcceso.visibility = View.GONE
         precio.visibility = View.GONE
         ahorro.visibility = View.GONE
         infoProtagonista.isClickable = false
         infoProtagonista.setOnClickListener(null)
         filasExtra.removeAllViews()
-        filasExtra.visibility = View.GONE
         expandido = false
+        aplicarVisibilidadExtras()
         datosVisibles = false
         btnExpandir.isEnabled = false
         btnExpandir.alpha = 0.35f
@@ -1300,10 +1451,11 @@ class FloatingWidgetService : Service() {
      * Activa las actualizaciones de ruta solo con la capsula abierta, la
      * pantalla encendida y permiso de ubicacion.
      *
-     * La lista se sigue recalculando cada 1500 m, pero las lecturas llegan
-     * cada 10 segundos para que el detector de modo ruta pueda evaluar su
-     * ventana de un minuto. El GPS ya estaba activo con el refresco anterior;
-     * solo cambia la frecuencia de las llamadas.
+     * La lista se recalcula cada 250 m si hay corriente externa o cada
+     * 1500 m con bateria, pero las lecturas llegan cada 10 segundos para
+     * que el detector de modo ruta pueda evaluar su ventana de un minuto.
+     * El GPS ya estaba activo con el refresco anterior; solo cambia la
+     * frecuencia de las llamadas.
      */
     private fun iniciarActualizacionesRuta() {
         if (!activo || actualizacionesRutaActivas) return
@@ -1378,7 +1530,7 @@ class FloatingWidgetService : Service() {
         )
 
         // El detector consume todas las lecturas, no solo las que superan
-        // los 1500 m del refresco de la lista, para poder aplicar la
+        // el umbral del refresco de la lista, para poder aplicar la
         // histeresis de un minuto sobre la velocidad.
         val rumboGps = if (location.hasBearing() && location.bearing.isFinite()) {
             location.bearing
@@ -1399,7 +1551,7 @@ class FloatingWidgetService : Service() {
             actualizarColorCierre()
             if (root != null && datosVisibles) {
                 // Se reordena con el nuevo modo sin esperar al proximo
-                // refresco de 1500 m.
+                // refresco por distancia.
                 ultimoResultado?.let { aplicarResultado(it) }
             }
         }
@@ -1433,15 +1585,16 @@ class FloatingWidgetService : Service() {
             )
         }
 
-        if (desplazamientoRuta < DISTANCIA_RUTA_METROS) return
+        if (desplazamientoRuta < umbralRecalculoMetros()) return
 
         ultimaUbicacionRuta = punto
         actualizarRuta(punto)
     }
 
     /**
-     * Recalcula la lista con la nueva ubicacion y, si la cache del
-     * Ministerio tiene mas de 45 minutos, la descarga en silencio.
+     * Recalcula localmente distancias, filtros y orden con la nueva
+     * ubicacion. La descarga del JSON sigue su cache normal de 45 minutos:
+     * el umbral de 250 m no incrementa el consumo de datos.
      */
     private fun actualizarRuta(ubicacion: Ubicacion) {
         repository.registrarUbicacionDeRuta(ubicacion)
@@ -1516,6 +1669,32 @@ class FloatingWidgetService : Service() {
         return gestor.isInteractive
     }
 
+    /**
+     * Umbral de desplazamiento para recalcular localmente distancias,
+     * filtros y orden de la lista. Con corriente externa se baja a 250 m
+     * porque el dispositivo no consume bateria; con bateria se conserva el
+     * umbral de 1500 m y el watchdog. La descarga del JSON no depende de
+     * este valor y mantiene su cache normal.
+     */
+    private fun umbralRecalculoMetros(): Double {
+        val conCorriente = estaConectadoACorriente(this)
+        val umbral = if (conCorriente) {
+            UMBRAL_RECALCULO_CORRIENTE_METROS
+        } else {
+            UMBRAL_RECALCULO_BATERIA_METROS
+        }
+        if (umbral != ultimoUmbralRecalculo) {
+            ultimoUmbralRecalculo = umbral
+            Log.i(
+                TAG,
+                "Umbral de recalculo local: " + umbral.toInt() +
+                    " m; alimentacion " +
+                    (if (conCorriente) "externa" else "bateria")
+            )
+        }
+        return umbral
+    }
+
     private fun distanciaMetros(
         latitudOrigen: Double,
         longitudOrigen: Double,
@@ -1574,8 +1753,18 @@ class FloatingWidgetService : Service() {
         private const val ESCALA_COMPACTA = 1f
         private const val MARGEN_SEGURIDAD_ALTO_DP = 16
 
+        // Panel QR de Ko-fi dentro de la capsula.
+        private const val QR_MINIMO_DP = 96
+        private const val QR_MAXIMO_DP = 300
+        private const val FRACCION_ANCHO_QR = 0.78f
+
+        // Tope en pixeles del QR de 512 px: evita ampliarlo en exceso en
+        // pantallas de densidad muy alta y conserva los modulos nitidos.
+        private const val QR_MAXIMO_PX = 768
+
         // Actualizacion automatica de ruta y proteccion de bateria.
-        private const val DISTANCIA_RUTA_METROS = 1500f
+        private const val UMBRAL_RECALCULO_BATERIA_METROS = 1500.0
+        private const val UMBRAL_RECALCULO_CORRIENTE_METROS = 250.0
         private const val INTERVALO_MUESTREO_MS = 10000L
         private const val DISTANCIA_MUESTREO_METROS = 0f
         private const val MOVIMIENTO_REAL_METROS = 100.0
@@ -1593,6 +1782,28 @@ class FloatingWidgetService : Service() {
          */
         @Volatile
         var activo: Boolean = false
+
+        /**
+         * Indica si el dispositivo esta conectado a corriente externa por
+         * AC, USB o carga inalambrica. Se consulta el estado pegajoso de
+         * ACTION_BATTERY_CHANGED, de modo que el cambio de alimentacion se
+         * aplica en la siguiente lectura de ubicacion sin reiniciar el
+         * servicio.
+         */
+        fun estaConectadoACorriente(context: Context): Boolean {
+            val filtro = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            val bateria = try {
+                context.registerReceiver(null, filtro)
+            } catch (e: Exception) {
+                Log.w(TAG, "No se pudo leer el estado de la bateria", e)
+                return false
+            } ?: return false
+
+            val enchufado = bateria.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
+            return enchufado == BatteryManager.BATTERY_PLUGGED_AC ||
+                enchufado == BatteryManager.BATTERY_PLUGGED_USB ||
+                enchufado == BatteryManager.BATTERY_PLUGGED_WIRELESS
+        }
 
         fun iniciar(context: Context) {
             val intent = Intent(context, FloatingWidgetService::class.java)

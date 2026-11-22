@@ -74,6 +74,9 @@ class MainActivity : Activity() {
 
         downloadButton.setOnClickListener { descargarPrecios() }
 
+        // Tarjeta discreta de donaciones voluntarias al final de la pantalla.
+        KoFiSupport.conectarTarjeta(this)
+
         findViewById<Button>(R.id.button_floating).setOnClickListener {
             if (guardarConfiguracionFlotante(silencioso = true)) {
                 activarModoFlotante()

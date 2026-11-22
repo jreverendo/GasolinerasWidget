@@ -357,6 +357,8 @@
                 android:textColor="@color/widget_text_muted"
                 android:textSize="12sp" />
 
+            <include layout="@layout/include_kofi_support" />
+
         </LinearLayout>
     </ScrollView>
 </LinearLayout>
