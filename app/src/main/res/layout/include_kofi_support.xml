@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/kofi_card"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="24dp"
+    android:background="@drawable/bg_config_card"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/kofi_section_title"
+        android:textColor="@color/config_text_primary"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="@string/kofi_section_text"
+        android:textColor="@color/config_text_secondary"
+        android:textSize="13sp" />
+
+    <Button
+        android:id="@+id/button_kofi_open"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:backgroundTint="@color/config_button"
+        android:minHeight="48dp"
+        android:text="@string/kofi_invite_button"
+        android:textAllCaps="false"
+        android:textColor="@color/config_text_primary"
+        android:textSize="15sp" />
+
+    <Button
+        android:id="@+id/button_kofi_qr"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:backgroundTint="@color/config_button_secondary"
+        android:minHeight="48dp"
+        android:text="@string/kofi_show_qr_button"
+        android:textAllCaps="false"
+        android:textColor="@color/config_text_primary"
+        android:textSize="15sp" />
+</LinearLayout>
